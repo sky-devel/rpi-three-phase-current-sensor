@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -8,9 +9,9 @@ class Settings(BaseSettings):
     DB_NAME: str
     DB_USERNAME: str
 
-    @property
-    def database_url(self):
-        return f'postgresql://{self.DB_USERNAME}:{self.DB_PASSWORD}@{self.DB_HOSTNAME}:{self.DB_PORT}/{self.DB_NAME}'
+    SERIAL_PORT_LIST: List[str]
+    BAUD_RATE: int
+    SLAVE_ID: int
 
     class Config:
         env_file = ".env"

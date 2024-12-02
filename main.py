@@ -1,22 +1,26 @@
-import json
-import sys
-import Adafruit_ADS1x15
-from statistics import mean
+from pymodbus.client.serial import ModbusSerialClient as ModbusClient
+from config import settings
 from database import execute_query
 from datetime import datetime
 
-adc = Adafruit_ADS1x15.ADS1x15.ADS1115(address=0x48, busnum=1)
 
-print("ADC values:")
-val_sequence = {"analog_input_0": [], "analog_input_1": [], "analog_input_2": []}
-while True:
-    start_time = datetime.now()
-    while start_time.minute == datetime.now().minute:
-        val_sequence["analog_input_0"].append(adc.read_adc(0, gain=1, data_rate=475))
-        val_sequence["analog_input_1"].append(adc.read_adc(1, gain=1, data_rate=475))
-        val_sequence["analog_input_2"].append(adc.read_adc(2, gain=1, data_rate=475))
-        sys.stdout.write(f"\r%i %i %i" % tuple([mean(values) for values in val_sequence.values()]))
-        sys.stdout.flush()
-    else:
-        execute_query("INSERT INTO sensor_data(datetime, data) VALUES ('%s', '%s');" % (start_time.strftime('%Y-%m-%d %H:%M:00'), json.dumps(val_sequence)))
-        val_sequence = {key: [] for key in val_sequence.keys()}
+clients = [ModbusClient(port=serial_port, baudrate=settings.BAUD_RATE, timeout=1) for serial_port in settings]
+
+def read_sensor_data(client: ModbusClient):
+    try:
+        client.connect()
+        response = client.read_input_registers(
+            address=0x0000,
+            count=6,
+            slave=settings.SLAVE_ID,
+        )
+
+        if response.isError():
+            raise Exception(f"Error in the response of the device({client})")
+        else:
+            print(response)
+
+    except Exception as ex:
+        print(ex)
+    finally:
+        client.close()
