@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import Dict
 
 
 class Settings(BaseSettings):
@@ -9,9 +9,11 @@ class Settings(BaseSettings):
     DB_NAME: str
     DB_USERNAME: str
 
-    SERIAL_PORT_LIST: List[str]
+    SERIAL_PORTS: Dict
     BAUD_RATE: int
     SLAVE_ID: int
+
+    MACHINE_ID: int
 
     @property
     def database_url(self):

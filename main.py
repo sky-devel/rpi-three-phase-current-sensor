@@ -8,16 +8,18 @@ from loguru import logger
 import traceback
 import threading
 import time
-import json
 import copy
 
 cpu = CPUTemperature()
 # logger.add("app.log", rotation="10 MB", format="\n{time}\n{level}\n{message}")
 
-clients = [ModbusClient(method='rtu', port=serial_port, baudrate=settings.BAUD_RATE, timeout=1, bytesize=8, stopbits=1,
-                        parity='N') for serial_port in settings.SERIAL_PORT_LIST]
+clients = {}
 
-data = {str(client.port): {"voltage": [], "current": []} for client in clients}
+for number, port in settings.SERIAL_PORTS.items():
+    clients[number] = ModbusClient(method='rtu', port=port, baudrate=settings.BAUD_RATE, timeout=1, bytesize=8, stopbits=1, parity='N')
+
+
+data = {sensor_number: {"voltage": [], "current": []} for sensor_number in clients}
 data_lock = threading.Lock()
 sending_data_lock = threading.Lock()
 reading_event = threading.Event()
@@ -69,15 +71,8 @@ def mian_loop():
     global current_minute
     global current_date
 
-    def send_data(data):
-        query = 'INSERT INTO three_phase_data (datetime, machine, sensor, data) VALUES '
-        for client in clients:
-            print(client, str(client.port)[-11], client.port, sep='---')
-            sensor_id = str(client.port)[-11]
-            client = client.port
-            data[client]['temperature'] = round(cpu.temperature, 1)
-            query += f"('{current_date} {current_minute}', 0, {sensor_id}, {Json(data[client])}), "
-        query = query[:-2] + ';'
+    def send_data(sensors_data):
+        query = f"INSERT INTO three_phase_data (datetime, machine, p1, p2, p3, metadata) VALUES ('{current_date} {current_minute}', {settings.MACHINE_ID}, {Json(sensors_data[1])}, {Json(sensors_data[2])}, {Json(sensors_data[3])}, {Json({'temperature': round(cpu.temperature, 1)})});"
         threading.Thread(target=execute_query, args=(query,)).start()
 
     while True:
@@ -85,7 +80,7 @@ def mian_loop():
             if current_minute != datetime.now().strftime("%H:%M"):
                 reading_event.clear()
                 with data_lock:
-                    send_data(data=copy.deepcopy(data))
+                    send_data(sensors_data=copy.deepcopy(data))
                 reading_event.set()
                 current_minute = datetime.now().strftime("%H:%M")
                 current_date = datetime.date(datetime.now())
@@ -96,6 +91,6 @@ def mian_loop():
 
 
 if __name__ == "__main__":
-    for client in clients:
-        threading.Thread(target=read_sensor_data, args=(client, data[str(client.port)])).start()
+    for sensor_number, client in clients.items():
+        threading.Thread(target=read_sensor_data, args=(client, data[sensor_number])).start()
     threading.Thread(target=mian_loop).start()
