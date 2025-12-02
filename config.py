@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     BAUD_RATE: int
     SLAVE_ID: int
 
+    @property
+    def database_url(self):
+        return f"postgresql://{self.DB_USERNAME}:{self.DB_PASSWORD}@{self.DB_HOSTNAME}:{self.DB_PORT}/{self.DB_NAME}"
+
     class Config:
         env_file = ".env"
 
