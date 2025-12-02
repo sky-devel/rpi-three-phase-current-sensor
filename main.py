@@ -19,7 +19,7 @@ for number, port in settings.SERIAL_PORTS.items():
     clients[number] = ModbusClient(method='rtu', port=port, baudrate=settings.BAUD_RATE, timeout=1, bytesize=8, stopbits=1, parity='N')
 
 
-data = {sensor_number: {"voltage": [], "current": []} for sensor_number in clients}
+data = {sensor_number: {"voltage": [], "current": [], "power_factor": []} for sensor_number in clients}
 data_lock = threading.Lock()
 sending_data_lock = threading.Lock()
 reading_event = threading.Event()
