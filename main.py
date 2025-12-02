@@ -28,7 +28,7 @@ current_minute = datetime.now().strftime("%H:%M")
 current_date = datetime.date(datetime.now())
 
 
-def read_sensor_data(client: ModbusClient, data_buffer: dict):
+def read_sensor_data(sensor_number: int, client: ModbusClient, data_buffer: dict):
     last_time = time.time()
     start_minute = datetime.now().strftime("%H:%M")
 
@@ -36,7 +36,6 @@ def read_sensor_data(client: ModbusClient, data_buffer: dict):
         try:
             with client:
                 if time.time() - last_time >= 0.7:
-                    print(round(cpu.temperature, 1))
                     last_time = time.time()
                     response = client.read_input_registers(
                         address=0x00,
@@ -54,12 +53,13 @@ def read_sensor_data(client: ModbusClient, data_buffer: dict):
                     else:
                         voltage = response.registers[0] / 10.0
                         current = response.registers[1] / 100.0
-                        # power = response.registers[2]
+                        power_factor = response.registers[5] / 100.0
                         # logger.info(f"{str(client)}, {voltage}, {current}")
                         reading_event.wait()
                         data_lock.acquire()
                         data_buffer["voltage"].append(voltage)
                         data_buffer["current"].append(current)
+                        data_buffer["power_factor"].append(power_factor)
                         data_lock.release()
         except Exception as ex:
             print(ex)
@@ -92,5 +92,5 @@ def mian_loop():
 
 if __name__ == "__main__":
     for sensor_number, client in clients.items():
-        threading.Thread(target=read_sensor_data, args=(client, data[sensor_number])).start()
+        threading.Thread(target=read_sensor_data, args=(sensor_number, client, data[sensor_number])).start()
     threading.Thread(target=mian_loop).start()
