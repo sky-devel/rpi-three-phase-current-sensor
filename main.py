@@ -9,6 +9,7 @@ import traceback
 import threading
 import time
 import copy
+import sys
 
 cpu = CPUTemperature()
 # logger.add("app.log", rotation="10 MB", format="\n{time}\n{level}\n{message}")
@@ -19,7 +20,13 @@ for number, port in settings.SERIAL_PORTS.items():
     clients[number] = ModbusClient(method='rtu', port=port, baudrate=settings.BAUD_RATE, timeout=1, bytesize=8, stopbits=1, parity='N')
 
 
-data = {sensor_number: {"voltage": [], "current": [], "power_factor": []} for sensor_number in clients}
+data = {sensor_number: {
+    "voltage": [], 
+    "current": [], 
+    "power": [],
+    "frequency": [],
+    "power_factor": []
+    } for sensor_number in clients}
 data_lock = threading.Lock()
 sending_data_lock = threading.Lock()
 reading_event = threading.Event()
@@ -29,42 +36,46 @@ current_date = datetime.date(datetime.now())
 
 
 def read_sensor_data(sensor_number: int, client: ModbusClient, data_buffer: dict):
+    print(f'The query cycle for sensor {sensor_number} has been created', file=sys.stdout)
     last_time = time.time()
     start_minute = datetime.now().strftime("%H:%M")
 
-    while True:
-        try:
-            with client:
+    with client:
+        while True:
+            try:
                 if time.time() - last_time >= 0.7:
                     last_time = time.time()
                     response = client.read_input_registers(
                         address=0x00,
-                        count=6,
+                        count=10,
                         unit=1,
                     )
-
                     if start_minute != current_minute:
                         start_minute = current_minute
                         reading_event.wait()
-                        data_buffer["voltage"] = []
-                        data_buffer["current"] = []
-                        # data_buffer["power"] = []
+                        for key in list(data_buffer):
+                            data_buffer[key] = []
                         continue
                     else:
                         voltage = response.registers[0] / 10.0
-                        current = response.registers[1] / 100.0
-                        power_factor = response.registers[5] / 100.0
+                        current = (response.registers[2] << 16 | response.registers[1]) / 1000.0
+                        power = (response.registers[4] << 16 | response.registers[3]) / 10.0
+                        # energy = (response.registers[6] << 16 | response.registers[5])
+                        frequency = response.registers[7] / 10.0
+                        power_factor = response.registers[8] / 100.0
                         # logger.info(f"{str(client)}, {voltage}, {current}")
                         reading_event.wait()
                         data_lock.acquire()
                         data_buffer["voltage"].append(voltage)
                         data_buffer["current"].append(current)
+                        data_buffer["power"].append(power)
+                        data_buffer["frequency"].append(frequency)
                         data_buffer["power_factor"].append(power_factor)
                         data_lock.release()
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            # logger.error(f"ModbusClient: {client}\n{ex}")
+                    # print(f"V: {voltage}V | A: {current}A | W: {power}W | F: {frequency}Hz | PF: {power_factor}")
+            except Exception as ex:
+                print(f'Sensor {sensor_number}:', ex, file=sys.stderr)
+                traceback.print_exc()
 
 
 def mian_loop():
@@ -72,6 +83,7 @@ def mian_loop():
     global current_date
 
     def send_data(sensors_data):
+        print('Sending data...')
         query = f"INSERT INTO three_phase_data (datetime, machine, p1, p2, p3, metadata) VALUES ('{current_date} {current_minute}', {settings.MACHINE_ID}, {Json(sensors_data[1])}, {Json(sensors_data[2])}, {Json(sensors_data[3])}, {Json({'temperature': round(cpu.temperature, 1)})});"
         threading.Thread(target=execute_query, args=(query,)).start()
 
