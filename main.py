@@ -6,6 +6,7 @@ from database import execute_query
 from datetime import datetime
 import traceback
 import threading
+import serial
 import time
 import copy
 import sys
@@ -25,6 +26,7 @@ data = {sensor_number: {
     "frequency": [],
     "power_factor": []
     } for sensor_number in clients}
+data['engine_revolutions'] = []
 data_lock = threading.Lock()
 sending_data_lock = threading.Lock()
 reading_event = threading.Event()
@@ -74,12 +76,57 @@ def read_sensor_data(sensor_number: int, client: ModbusClient, data_buffer: dict
                 print(f'Sensor {sensor_number}:', traceback.format_exc(), file=sys.stderr)
 
 
+def read_engine_revolutions():
+    port = None
+    
+    try:
+        def open_port():
+            port = serial.Serial('/dev/serial0', 9600, timeout=1)
+            time.sleep(0.5)
+            return port
+
+        port = open_port()
+        start_minute = datetime.now().strftime('%H:%M')
+
+        while True:
+            try:
+                if port.is_open and port.in_waiting > 0:
+                    if start_minute != current_minute:
+                        start_minute = current_minute
+                        reading_event.wait()
+                        data['engine_revolutions'] = []
+                        continue
+                    
+                    line = port.readline().decode("utf-8", errors="ignore").strip()
+                    if line:
+                        value = int(line)
+                        print(value)
+                        reading_event.wait()
+                        data_lock.acquire()
+                        data['engine_revolutions'].append(value)
+                        data_lock.release()
+            except OSError as e:
+                # Ошибка порта
+                try:
+                    port.close()
+                except Exception:
+                    pass
+                port = open_port()
+                time.sleep(0.2)
+    except Exception as ex:
+        print(traceback.format_exc())
+        try:
+            if port and port.is_open:
+                port.close()
+        finally:
+            read_engine_revolutions()
+
 def mian_loop():
     global current_minute
     global current_date
 
     def send_data(sensors_data):
-        query = f"INSERT INTO three_phase_data (datetime, machine, p1, p2, p3, metadata) VALUES ('{current_date} {current_minute}', {settings.MACHINE_ID}, {Json(sensors_data[1])}, {Json(sensors_data[2])}, {Json(sensors_data[3])}, {Json({'temperature': round(cpu.temperature, 1)})});"
+        query = f"INSERT INTO three_phase_data (datetime, machine, p1, p2, p3, engine, metadata) VALUES ('{current_date} {current_minute}', {settings.MACHINE_ID}, {Json(sensors_data[1])}, {Json(sensors_data[2])}, {Json(sensors_data[3])}, {Json({'revolutions': sensors_data['engine_revolutions']})}, {Json({'temperature': round(cpu.temperature, 1)})});"
         threading.Thread(target=execute_query, args=(query,)).start()
 
     while True:
@@ -99,4 +146,5 @@ def mian_loop():
 if __name__ == "__main__":
     for sensor_number, client in clients.items():
         threading.Thread(target=read_sensor_data, args=(sensor_number, client, data[sensor_number])).start()
+    threading.Thread(target=read_engine_revolutions).start()
     threading.Thread(target=mian_loop).start()
