@@ -4,7 +4,6 @@ from psycopg2.extras import Json
 from config import settings
 from database import execute_query
 from datetime import datetime
-from loguru import logger
 import traceback
 import threading
 import time
@@ -12,7 +11,6 @@ import copy
 import sys
 
 cpu = CPUTemperature()
-# logger.add("app.log", rotation="10 MB", format="\n{time}\n{level}\n{message}")
 
 clients = {}
 
@@ -21,8 +19,8 @@ for number, port in settings.SERIAL_PORTS.items():
 
 
 data = {sensor_number: {
-    "voltage": [], 
-    "current": [], 
+    "voltage": [],
+    "current": [],
     "power": [],
     "frequency": [],
     "power_factor": []
@@ -63,7 +61,6 @@ def read_sensor_data(sensor_number: int, client: ModbusClient, data_buffer: dict
                         # energy = (response.registers[6] << 16 | response.registers[5])
                         frequency = response.registers[7] / 10.0
                         power_factor = response.registers[8] / 100.0
-                        # logger.info(f"{str(client)}, {voltage}, {current}")
                         reading_event.wait()
                         data_lock.acquire()
                         data_buffer["voltage"].append(voltage)
@@ -74,8 +71,7 @@ def read_sensor_data(sensor_number: int, client: ModbusClient, data_buffer: dict
                         data_lock.release()
                     # print(f"V: {voltage}V | A: {current}A | W: {power}W | F: {frequency}Hz | PF: {power_factor}")
             except Exception as ex:
-                print(f'Sensor {sensor_number}:', ex, file=sys.stderr)
-                traceback.print_exc()
+                print(f'Sensor {sensor_number}:', traceback.format_exc(), file=sys.stderr)
 
 
 def mian_loop():
@@ -83,7 +79,6 @@ def mian_loop():
     global current_date
 
     def send_data(sensors_data):
-        print('Sending data...')
         query = f"INSERT INTO three_phase_data (datetime, machine, p1, p2, p3, metadata) VALUES ('{current_date} {current_minute}', {settings.MACHINE_ID}, {Json(sensors_data[1])}, {Json(sensors_data[2])}, {Json(sensors_data[3])}, {Json({'temperature': round(cpu.temperature, 1)})});"
         threading.Thread(target=execute_query, args=(query,)).start()
 
@@ -97,8 +92,7 @@ def mian_loop():
                 current_minute = datetime.now().strftime("%H:%M")
                 current_date = datetime.date(datetime.now())
         except Exception as ex:
-            print(ex)
-            # logger.error(f"Main Loop Exaption:\n{ex}")
+            print(traceback.format_exc())
             time.sleep(10)
 
 
